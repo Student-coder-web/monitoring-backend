@@ -1,10 +1,8 @@
 import axios from 'axios';
 import { useEffect, useRef, useState } from 'react';
 
-// ✅ Hybrid base URL (env + fallback)
-const BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  'http://18.234.228.216:30007';
+// ✅ Vercel proxy base URL (no env needed)
+const BASE = '/api';
 
 const api = axios.create({
   baseURL: BASE,
