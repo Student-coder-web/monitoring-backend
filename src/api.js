@@ -1,11 +1,14 @@
 import axios from 'axios';
 import { useEffect, useRef, useState } from 'react';
 
-// 🔥 Use environment variable (BEST PRACTICE)
-const BASE = import.meta.env.VITE_API_BASE_URL || 'http://18.234.228.216:30007';
+// ✅ Hybrid base URL (env + fallback)
+const BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://18.234.228.216:30007';
 
 const api = axios.create({
   baseURL: BASE,
+  timeout: 5000,
 });
 
 // ---------- API CALLS ----------
@@ -44,7 +47,7 @@ export async function fetchPodDetails(namespace, pod) {
   return data;
 }
 
-// ---------- SSE (REAL-TIME) ----------
+// ---------- REAL-TIME (SSE + FALLBACK) ----------
 
 export function useSSE() {
   const [data, setData] = useState(null);
@@ -53,30 +56,56 @@ export function useSSE() {
   const esRef = useRef(null);
 
   useEffect(() => {
-    const es = new EventSource(`${BASE}/stream`);
-    esRef.current = es;
+    let pollingInterval;
 
-    es.onopen = () => {
-      setConnected(true);
-      setError(null);
+    try {
+      // 🔥 Try SSE first
+      const es = new EventSource(`${BASE}/stream`);
+      esRef.current = es;
+
+      es.onopen = () => {
+        console.log("SSE connected");
+        setConnected(true);
+        setError(null);
+      };
+
+      es.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          setData(parsed);
+        } catch (e) {
+          console.error('SSE parse error', e);
+        }
+      };
+
+      es.onerror = () => {
+        console.warn("SSE failed → switching to polling");
+
+        setConnected(false);
+        setError('SSE failed. Using polling...');
+
+        es.close();
+
+        // 🔥 FALLBACK: polling every 5 sec
+        pollingInterval = setInterval(async () => {
+          try {
+            const pods = await fetchPods();
+            setData({ pods });
+          } catch (err) {
+            console.error("Polling error", err);
+          }
+        }, 5000);
+      };
+
+    } catch (err) {
+      console.error("SSE init error", err);
+    }
+
+    return () => {
+      if (esRef.current) esRef.current.close();
+      if (pollingInterval) clearInterval(pollingInterval);
     };
-
-    es.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        setData(parsed);
-      } catch (e) {
-        console.error('SSE parse error', e);
-      }
-    };
-
-    es.onerror = () => {
-      setConnected(false);
-      setError('Connection lost. Retrying...');
-    };
-
-    return () => es.close();
   }, []);
 
   return { data, connected, error };
-}
+} 
